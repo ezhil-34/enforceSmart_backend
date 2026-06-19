@@ -1,11 +1,7 @@
 fastapi
 uvicorn
 pandas
-<<<<<<< HEAD
 numpys
 joblib
 scikit-learn
-=======
-numpy
-joblib
->>>>>>> 69159926ad327b49c138a709cde9a2075e7ab49f
+
