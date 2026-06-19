@@ -1,18 +1,11 @@
 from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import joblib
 
 app = FastAPI(title="AI Parking Intelligence")
-
-# -----------------------------------------------------
-# LOAD MODELS (SAFE)
-# -----------------------------------------------------
-DBSCAN_MODEL = joblib.load("model/dbscan.pkl")
-SCALER = joblib.load("model/scaler.pkl")
 
 # -----------------------------------------------------
 # CORS
@@ -26,54 +19,44 @@ app.add_middleware(
 )
 
 # -----------------------------------------------------
-# 🔥 MOCK DATAFRAME (REPLACES CSV SAFELY)
+# LOAD MODELS
 # -----------------------------------------------------
-np.random.seed(42)
-
-rows = 500
-base_date = datetime(2023, 11, 20)
-
-df = pd.DataFrame({
-    "created_datetime": [
-        base_date + timedelta(hours=np.random.randint(0, 24))
-        for _ in range(rows)
-    ],
-    "latitude": 9.92 + np.random.uniform(-0.03, 0.03, rows),
-    "longitude": 78.11 + np.random.uniform(-0.03, 0.03, rows),
-    "junction_name": np.random.choice(
-        ["KK Nagar", "Anna Nagar", "Periyar", "Goripalayam", "Mattuthavani"],
-        rows
-    ),
-    "vehicle_type": np.random.choice(
-        ["CAR", "SCOOTER", "MAXI-CAB", "LCV"],
-        rows
-    ),
-    "violation_type": np.random.choice(
-        ["NO PARKING", "MAIN ROAD", "ROAD CROSSING"],
-        rows
-    )
-})
-
-df["hour"] = df["created_datetime"].dt.hour
+DBSCAN_MODEL = joblib.load("model/dbscan.pkl")
+SCALER = joblib.load("model/scaler.pkl")
 
 # -----------------------------------------------------
-# 1️⃣ HOTSPOTS (UNCHANGED RESPONSE)
+# ROOT (FOR RENDER)
+# -----------------------------------------------------
+@app.get("/")
+def root():
+    return {"status": "Backend running"}
+
+# -----------------------------------------------------
+# 1️⃣ HOTSPOTS (PLACE BASED – NO MADURAI)
 # -----------------------------------------------------
 @app.get("/predict/hotspots")
-def get_hotspots():
+def get_hotspots(
+    date: str = None,
+    center_lat: float = None,
+    center_lng: float = None
+):
+    # --- fallback center if frontend still uses date ---
+    if center_lat is None or center_lng is None:
+        center_lat = 12.9716   # neutral default (not Madurai)
+        center_lng = 77.5946
+
     hotspots = []
 
     for i in range(8):
         raw_score = np.random.uniform(30, 120)
-        score = float(SCALER.transform([[raw_score]])[0][0])
-
+        score = int(SCALER.transform([[raw_score]])[0][0])
         band = "high" if score >= 70 else ("medium" if score >= 40 else "low")
 
         hotspots.append({
             "id": f"H-{i+1}",
-            "latitude": 9.92 + np.random.uniform(-0.02, 0.02),
-            "longitude": 78.11 + np.random.uniform(-0.02, 0.02),
-            "score": int(score),
+            "latitude": center_lat + np.random.uniform(-0.02, 0.02),
+            "longitude": center_lng + np.random.uniform(-0.02, 0.02),
+            "score": score,
             "band": band,
             "priority": "P1" if band == "high" else "P2",
             "peak": "09:00–12:00",
@@ -86,32 +69,44 @@ def get_hotspots():
         "total_hotspots": len(hotspots),
         "hotspots": hotspots
     }
-
 # -----------------------------------------------------
-# 2️⃣ HEATMAP (UNCHANGED RESPONSE)
+# 2️⃣ HEATMAP (PLACE BASED)
 # -----------------------------------------------------
+ 
 @app.get("/heatmap/violations")
-def violation_heatmap():
-    return df[["latitude", "longitude"]].to_dict(orient="records")
+def violation_heatmap(
+    start_date: str = None,
+    end_date: str = None,
+    hour: int = None,
+    center_lat: float = None,
+    center_lng: float = None
+):
+    # fallback center
+    if center_lat is None or center_lng is None:
+        center_lat = 12.9716
+        center_lng = 77.5946
+
+    points = []
+
+    for _ in range(300):
+        points.append({
+            "latitude": center_lat + np.random.uniform(-0.03, 0.03),
+            "longitude": center_lng + np.random.uniform(-0.03, 0.03)
+        })
+
+    return points
 
 # -----------------------------------------------------
-# 3️⃣ STATS (UNCHANGED RESPONSE)
+# 3️⃣ STATS (UNCHANGED)
 # -----------------------------------------------------
 @app.get("/stats/hourly")
-def hourly_stats(date: str = Query("2023-11-20")):
-    try:
-        d = datetime.strptime(date, "%Y-%m-%d").date()
-    except Exception:
-        return {}
-
-    temp = df[df["created_datetime"].dt.date == d]
-    hourly = temp["hour"].value_counts().sort_index()
-    return hourly.to_dict()
+def hourly_stats():
+    return {str(i): np.random.randint(5, 40) for i in range(24)}
 
 @app.get("/stats/offence")
-async def get_offence_stats(start_date: str = Query(...), end_date: str = Query(...)):
+def get_offence_stats(start_date: str, end_date: str):
     return {"status": "success", "data": []}
 
 @app.get("/stats/junctions")
-async def get_junction_stats(start_date: str = Query(...), end_date: str = Query(...)):
+def get_junction_stats(start_date: str, end_date: str):
     return {"status": "success", "data": []}
